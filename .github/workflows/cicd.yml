@@ -1,0 +1,65 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Load .env file
+        run: |
+          echo "DOCKER_USERNAME=$(cat .env | grep DOCKER_USERNAME | cut -d '=' -f2)" >> $GITHUB_ENV
+          echo "DOCKER_PASSWORD=$(cat .env | grep DOCKER_PASSWORD | cut -d '=' -f2)" >> $GITHUB_ENV
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ env.DOCKER_PASSWORD }}
+
+      - name: Build and push blue image
+        run: |
+          docker build -t your-dockerhub-username/express-app:blue .
+          docker push your-dockerhub-username/express-app:blue
+
+      - name: Deploy blue version
+        run: |
+          # Assume you have a deployment script or CLI to deploy to your environment
+          deploy-script --image your-dockerhub-username/express-app:blue
+
+      - name: Healthcheck blue
+        run: |
+          sleep 10 # Give the deployment some time to come up
+          if ! curl -f http://your-deployment-url/health; then
+            echo "Blue deployment failed healthcheck"
+            exit 1
+          fi
+
+      - name: Build and push green image
+        run: |
+          docker build -f Dockerfile.broken -t your-dockerhub-username/express-app:green .
+          docker push your-dockerhub-username/express-app:green
+
+      - name: Deploy green version
+        run: |
+          # Assume you have a deployment script or CLI to deploy to your environment
+          deploy-script --image your-dockerhub-username/express-app:green
+
+      - name: Healthcheck green
+        run: |
+          sleep 10 # Give the deployment some time to come up
+          if ! curl -f http://your-deployment-url/health; then
+            echo "Green deployment failed healthcheck, rolling back to blue"
+            deploy-script --image your-dockerhub-username/express-app:blue
+            exit 1
+          fi
